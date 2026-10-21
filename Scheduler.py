@@ -21,7 +21,7 @@ class SatelliteSystem:
     def add_station(self, station):
         self.ground_stations.append(station)
 
-    def compute_visibility(self, sat, station, interval, N=1000, units="time_string", dp=2):
+    def compute_window(self, sat, station, interval, delta_t=1000, format=False):
         """Compute the visibility of a satellite from a ground station at time t."""
 
         # PARAMETERS
@@ -32,7 +32,7 @@ class SatelliteSystem:
         phi = sat.phase_angle
 
         # Pre-calculations,
-        t = np.linspace(start=interval[0], stop=interval[1], num=N) 
+        t = np.linspace(start=interval[0], stop=interval[1], num=delta_t) 
         R = rE/(rE + h)
 
         if sat.orbit_prograde:
@@ -57,19 +57,35 @@ class SatelliteSystem:
         if visible[-1]:
             ends = np.append(ends, len(visible) - 1)
 
-        windows = [(t[s].item(), t[e].item()) for s, e in zip(starts, ends)]
+        windows = [(
+                    sat.name,
+                    t[s].item(), 
+                    t[e].item(), 
+                    t[e].item()-t[s].item(),
+                    (t[e].item()-t[s].item())*sat.transfer_rate) 
+                    for s, e in zip(starts, ends)]
 
         # Converting to HH:MM format,
-        windows = [(self._sec_to_hms(start), self._sec_to_hms(end)) for start, end in windows]
-    
+        if format:
+            windows = [(
+                        sat_name,
+                        self._sec_to_hms(start), 
+                        self._sec_to_hms(end), 
+                        self._sec_to_hms(duration),
+                        round(capacity)
+                        ) 
+                        for sat_name, start, end, duration, capacity in windows]
         return windows
 
-    def compute_visibilities(self, station, interval, N=1000):
+    def compute_windows(self, station, interval, delta_t=1000, format=False, order=True):
         """Compute the visibility of all satellites from a ground station at in the given time interval."""
-        all_windows = {}
+        all_windows = []
         for sat in self.sats:
-            windows = self.compute_visibility(sat, station, interval, N)
-            all_windows[sat.name] = windows
+            windows = self.compute_window(sat, station, interval, delta_t=delta_t, format=format)
+            all_windows.append(windows)
+        if order:
+            all_windows = [window for sublist in all_windows for window in sublist]
+            all_windows.sort(key=lambda x: x[1])  # Sorting by start time.
         return all_windows
 
     def _sec_to_hms(self, t):
@@ -82,15 +98,15 @@ class SatelliteSystem:
 
 class Satellite:
     """Class to represent a satellite with its properties such as name, altitude, and phase angle."""
-    def __init__(self, name, altitude, phase_angle, orbit_prograde=True):
+    def __init__(self, name, altitude, phase_angle, transfer_rate, orbit_prograde=True):
         self.name = name
         self.altitude = altitude
         self.phase_angle = phase_angle
+        self.transfer_rate = transfer_rate
         self.orbit_prograde = orbit_prograde
         self.planetary_radius = None
         self.planetary_mass = None
         self.planetary_angular_velocity = None
-        self.transfer_rate = None
         self.G = None
 
     def get_position(self, t):
